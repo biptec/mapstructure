@@ -161,7 +161,6 @@ package mapstructure
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"sort"
 	"strconv"
@@ -209,6 +208,8 @@ type DecoderConfig struct {
 	//
 	// If an error is returned, the entire decode will fail with that error.
 	DecodeHook DecodeHookFunc
+
+	PostDecodeHook DecodeHookFunc
 
 	// If ErrorUnused is true, then it is an error for there to exist
 	// keys in the original map that were unused in the decoding process
@@ -458,7 +459,7 @@ func (d *Decoder) decode(name string, input interface{}, outVal reflect.Value) e
 		var err error
 		input, err = DecodeHookExec(d.config.DecodeHook, inputVal, outVal)
 		if err != nil {
-			return fmt.Errorf("error decoding '%s': %w", name, err)
+			return NewError(name, "error decoding %w", err)
 		}
 	}
 
@@ -492,7 +493,7 @@ func (d *Decoder) decode(name string, input interface{}, outVal reflect.Value) e
 		err = d.decodeFunc(name, input, outVal)
 	default:
 		// If we reached this point then we weren't able to decode it
-		return fmt.Errorf("%s: unsupported type: %s", name, outputKind)
+		return NewError(name, "unsupported type: %s", outputKind)
 	}
 
 	// If we reached here, then we successfully decoded SOMETHING, so
@@ -553,9 +554,7 @@ func (d *Decoder) decodeBasic(name string, data interface{}, val reflect.Value) 
 
 	dataValType := dataVal.Type()
 	if !dataValType.AssignableTo(val.Type()) {
-		return fmt.Errorf(
-			"'%s' expected type '%s', got '%s'",
-			name, val.Type(), dataValType)
+		return NewError(name, "expected type '%s', got '%s'", val.Type(), dataValType)
 	}
 
 	val.Set(dataVal)
@@ -606,9 +605,7 @@ func (d *Decoder) decodeString(name string, data interface{}, val reflect.Value)
 	}
 
 	if !converted {
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 
 	return nil
@@ -642,20 +639,17 @@ func (d *Decoder) decodeInt(name string, data interface{}, val reflect.Value) er
 		if err == nil {
 			val.SetInt(i)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as int: %s", name, err)
+			return NewError(name, "cannot parse as int: %w", err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
 		i, err := jn.Int64()
 		if err != nil {
-			return fmt.Errorf(
-				"error decoding json.Number into %s: %s", name, err)
+			return NewError(name, "error decoding json.Number into: %w", err)
 		}
 		val.SetInt(i)
 	default:
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 
 	return nil
@@ -670,8 +664,7 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 	case dataKind == reflect.Int:
 		i := dataVal.Int()
 		if i < 0 && !d.config.WeaklyTypedInput {
-			return fmt.Errorf("cannot parse '%s', %d overflows uint",
-				name, i)
+			return NewError(name, "cannot parse, %d overflows uint", i)
 		}
 		val.SetUint(uint64(i))
 	case dataKind == reflect.Uint:
@@ -679,8 +672,7 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 	case dataKind == reflect.Float32:
 		f := dataVal.Float()
 		if f < 0 && !d.config.WeaklyTypedInput {
-			return fmt.Errorf("cannot parse '%s', %f overflows uint",
-				name, f)
+			return NewError(name, "cannot parse, %f overflows uint", f)
 		}
 		val.SetUint(uint64(f))
 	case dataKind == reflect.Bool && d.config.WeaklyTypedInput:
@@ -699,20 +691,17 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 		if err == nil {
 			val.SetUint(i)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as uint: %s", name, err)
+			return NewError(name, "cannot parse as uint: %w", err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
 		i, err := strconv.ParseUint(string(jn), 0, 64)
 		if err != nil {
-			return fmt.Errorf(
-				"error decoding json.Number into %s: %s", name, err)
+			return NewError(name, "error decoding json.Number into: %w", err)
 		}
 		val.SetUint(i)
 	default:
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 
 	return nil
@@ -738,12 +727,10 @@ func (d *Decoder) decodeBool(name string, data interface{}, val reflect.Value) e
 		} else if dataVal.String() == "" {
 			val.SetBool(false)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as bool: %s", name, err)
+			return NewError(name, "cannot parse as bool: %w", err)
 		}
 	default:
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 
 	return nil
@@ -777,20 +764,17 @@ func (d *Decoder) decodeFloat(name string, data interface{}, val reflect.Value) 
 		if err == nil {
 			val.SetFloat(f)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as float: %s", name, err)
+			return NewError(name, "cannot parse as float: %w", err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
 		i, err := jn.Float64()
 		if err != nil {
-			return fmt.Errorf(
-				"error decoding json.Number into %s: %s", name, err)
+			return NewError(name, "error decoding json.Number into: %w", err)
 		}
 		val.SetFloat(i)
 	default:
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 
 	return nil
@@ -828,7 +812,7 @@ func (d *Decoder) decodeMap(name string, data interface{}, val reflect.Value) er
 		fallthrough
 
 	default:
-		return fmt.Errorf("'%s' expected a map, got '%s'", name, dataVal.Kind())
+		return NewError(name, "expected a map, got '%s'", dataVal.Kind())
 	}
 }
 
@@ -857,7 +841,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 	valElemType := valType.Elem()
 
 	// Accumulate errors
-	errors := make([]error, 0)
+	var errs *Errors
 
 	// If the input data is empty, then we just match what the input data is.
 	if dataVal.Len() == 0 {
@@ -879,7 +863,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 		// First decode the key into the proper type
 		currentKey := reflect.Indirect(reflect.New(valKeyType))
 		if err := d.decode(fieldName, k.Interface(), currentKey); err != nil {
-			errors = appendErrors(errors, err)
+			errs = appendErrors(errs, err)
 			continue
 		}
 
@@ -887,7 +871,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 		v := dataVal.MapIndex(k).Interface()
 		currentVal := reflect.Indirect(reflect.New(valElemType))
 		if err := d.decode(fieldName, v, currentVal); err != nil {
-			errors = appendErrors(errors, err)
+			errs = appendErrors(errs, err)
 			continue
 		}
 
@@ -897,12 +881,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 	// Set the built up map to the value
 	val.Set(valMap)
 
-	// If we had errors, return those
-	if len(errors) > 0 {
-		return &Error{errors}
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val reflect.Value, valMap reflect.Value) error {
@@ -919,7 +898,7 @@ func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val re
 		// to the map value.
 		v := dataVal.Field(i)
 		if !v.Type().AssignableTo(valMap.Type().Elem()) {
-			return fmt.Errorf("cannot assign type '%s' to map value field of type '%s'", v.Type(), valMap.Type().Elem())
+			return NewError("", "cannot assign type '%s' to map value field of type '%s'", v.Type(), valMap.Type().Elem())
 		}
 
 		tagValue := f.Tag.Get(d.config.TagName)
@@ -939,6 +918,7 @@ func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val re
 			if tagValue[:index] == "-" {
 				continue
 			}
+
 			// If "omitempty" is specified in the tag, it ignores empty values.
 			if strings.Index(tagValue[index+1:], "omitempty") != -1 && isEmptyValue(v) {
 				continue
@@ -954,7 +934,7 @@ func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val re
 
 				// The final type must be a struct
 				if v.Kind() != reflect.Struct {
-					return fmt.Errorf("cannot squash non-struct type '%s'", v.Type())
+					return NewError("", "cannot squash non-struct type '%s'", v.Type())
 				}
 			}
 			if keyNameTagValue := tagValue[:index]; keyNameTagValue != "" {
@@ -1067,9 +1047,7 @@ func (d *Decoder) decodeFunc(name string, data interface{}, val reflect.Value) e
 	// into that. Then set the value of the pointer to this type.
 	dataVal := reflect.Indirect(reflect.ValueOf(data))
 	if val.Type() != dataVal.Type() {
-		return fmt.Errorf(
-			"'%s' expected type '%s', got unconvertible type '%s', value: '%v'",
-			name, val.Type(), dataVal.Type(), data)
+		return NewError(name, "expected type '%s', got unconvertible type '%s', value: '%v'", val.Type(), dataVal.Type(), data)
 	}
 	val.Set(dataVal)
 	return nil
@@ -1110,8 +1088,7 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 			}
 		}
 
-		return fmt.Errorf(
-			"'%s': source data must be an array or slice, got %s", name, dataValKind)
+		return NewError(name, "source data must be an array or slice, got %s", dataValKind)
 	}
 
 	// If the input value is nil, then don't allocate since empty != nil
@@ -1128,7 +1105,7 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 	}
 
 	// Accumulate any errors
-	errors := make([]error, 0)
+	var errs *Errors
 
 	for i := 0; i < dataVal.Len(); i++ {
 		currentData := dataVal.Index(i).Interface()
@@ -1139,19 +1116,14 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 
 		fieldName := name + "[" + strconv.Itoa(i) + "]"
 		if err := d.decode(fieldName, currentData, currentField); err != nil {
-			errors = appendErrors(errors, err)
+			errs = appendErrors(errs, err)
 		}
 	}
 
 	// Finally, set the value to the slice we built up
 	val.Set(valSlice)
 
-	// If there were errors, we return those
-	if len(errors) > 0 {
-		return &Error{errors}
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) error {
@@ -1183,13 +1155,11 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 				}
 			}
 
-			return fmt.Errorf(
-				"'%s': source data must be an array or slice, got %s", name, dataValKind)
+			return NewError(name, "source data must be an array or slice, got %s", dataValKind)
 
 		}
 		if dataVal.Len() > arrayType.Len() {
-			return fmt.Errorf(
-				"'%s': expected source data to have length less or equal to %d, got %d", name, arrayType.Len(), dataVal.Len())
+			return NewError(name, "expected source data to have length less or equal to %d, got %d", arrayType.Len(), dataVal.Len())
 
 		}
 
@@ -1198,7 +1168,7 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 	}
 
 	// Accumulate any errors
-	errors := make([]error, 0)
+	var errs *Errors
 
 	for i := 0; i < dataVal.Len(); i++ {
 		currentData := dataVal.Index(i).Interface()
@@ -1206,19 +1176,14 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 
 		fieldName := name + "[" + strconv.Itoa(i) + "]"
 		if err := d.decode(fieldName, currentData, currentField); err != nil {
-			errors = appendErrors(errors, err)
+			errs = appendErrors(errs, err)
 		}
 	}
 
 	// Finally, set the value to the array we built up
 	val.Set(valArray)
 
-	// If there were errors, we return those
-	if len(errors) > 0 {
-		return &Error{errors}
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 func (d *Decoder) decodeStruct(name string, data interface{}, val reflect.Value) error {
@@ -1260,16 +1225,14 @@ func (d *Decoder) decodeStruct(name string, data interface{}, val reflect.Value)
 		return result
 
 	default:
-		return fmt.Errorf("'%s' expected a map, got '%s'", name, dataVal.Kind())
+		return NewError(name, "expected a map, got '%s'", dataVal.Kind())
 	}
 }
 
 func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) error {
 	dataValType := dataVal.Type()
 	if kind := dataValType.Key().Kind(); kind != reflect.String && kind != reflect.Interface {
-		return fmt.Errorf(
-			"'%s' needs a map with string keys, has '%s' keys",
-			name, dataValType.Key().Kind())
+		return NewError(name, "needs a map with string keys, has '%s' keys", dataValType.Key().Kind())
 	}
 
 	dataValKeys := make(map[reflect.Value]struct{})
@@ -1280,7 +1243,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 	}
 
 	targetValKeysUnused := make(map[interface{}]struct{})
-	errors := make([]error, 0)
+	var errs *Errors
 
 	// This slice will keep track of all the structs we'll be decoding.
 	// There can be more than one struct if there are embedded structs
@@ -1334,8 +1297,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 			if squash {
 				if fieldVal.Kind() != reflect.Struct {
-					errors = appendErrors(errors,
-						fmt.Errorf("%s: unsupported type for squash: %s", fieldType.Name, fieldVal.Kind()))
+					errs = appendErrors(errs, NewError(fieldType.Name, "unsupported type for squash: %s", fieldVal.Kind()))
 				} else {
 					structs = append(structs, fieldVal)
 				}
@@ -1381,18 +1343,6 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 					break
 				}
 			}
-
-			if !rawMapVal.IsValid() {
-				// There was no matching key in the map for the value in
-				// the struct. Remember it for potential errors and metadata.
-				targetValKeysUnused[fieldName] = struct{}{}
-				continue
-			}
-		}
-
-		if !fieldValue.IsValid() {
-			// This should never happen
-			panic("field is not valid")
 		}
 
 		// If we can't set the field, then it is unexported or something,
@@ -1401,18 +1351,39 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 			continue
 		}
 
-		// Delete the key we're using from the unused map so we stop tracking
-		delete(dataValKeysUnused, rawMapKey.Interface())
+		if rawMapVal.IsValid() {
+			if !fieldValue.IsValid() {
+				// This should never happen
+				panic("field is not valid")
+			}
 
-		// If the name is empty string, then we're at the root, and we
-		// don't dot-join the fields.
-		if name != "" {
-			fieldName = name + "." + fieldName
+			// Delete the key we're using from the unused map so we stop tracking
+			delete(dataValKeysUnused, rawMapKey.Interface())
+
+			if err := d.decode(fieldName, rawMapVal.Interface(), fieldValue); err != nil {
+				// If the name is empty string, then we're at the root, and we
+				// don't dot-join the fields.
+				if name != "" {
+					err = NewError(name, "error encoding: %w", err)
+				}
+				errs = appendErrors(errs, err)
+			}
 		}
 
-		if err := d.decode(fieldName, rawMapVal.Interface(), fieldValue); err != nil {
-			errors = appendErrors(errors, err)
+		if d.config.PostDecodeHook != nil {
+			if _, err := DecodeHookExec(d.config.PostDecodeHook, rawMapVal, fieldValue); err != nil {
+				err := NewError(fieldName, "error decoding %w", err)
+				errs = appendErrors(errs, err)
+			}
 		}
+
+		if !rawMapVal.IsValid() {
+			// There was no matching key in the map for the value in
+			// the struct. Remember it for potential errors and metadata.
+			targetValKeysUnused[fieldName] = struct{}{}
+			continue
+		}
+
 	}
 
 	// If we have a "remain"-tagged field and we have unused keys then
@@ -1426,7 +1397,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 		// Decode it as-if we were just decoding this map onto our map.
 		if err := d.decodeMap(name, remain, remainField.val); err != nil {
-			errors = appendErrors(errors, err)
+			errs = appendErrors(errs, err)
 		}
 
 		// Set the map to nil so we have none so that the next check will
@@ -1441,8 +1412,8 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 		}
 		sort.Strings(keys)
 
-		err := fmt.Errorf("'%s' has invalid keys: %s", name, strings.Join(keys, ", "))
-		errors = appendErrors(errors, err)
+		err := NewError(name, "has invalid keys: %s", strings.Join(keys, ", "))
+		errs = appendErrors(errs, err)
 	}
 
 	if d.config.ErrorUnset && len(targetValKeysUnused) > 0 {
@@ -1452,12 +1423,12 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 		}
 		sort.Strings(keys)
 
-		err := fmt.Errorf("'%s' has unset fields: %s", name, strings.Join(keys, ", "))
-		errors = appendErrors(errors, err)
+		err := NewError(name, "has unset fields: %s", strings.Join(keys, ", "))
+		errs = appendErrors(errs, err)
 	}
 
-	if len(errors) > 0 {
-		return &Error{errors}
+	if err := errs.ErrorOrNil(); err != nil {
+		return err
 	}
 
 	// Add the unused keys to the list of unused keys if we're tracking metadata
