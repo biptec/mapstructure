@@ -114,7 +114,7 @@
 // # Omit Empty Values
 //
 // When decoding from a struct to any other value, you may use the
-// ",omitempty" suffix on your tag to omit that value if it equates to
+// ",omitEmpty" suffix on your tag to omit that value if it equates to
 // the zero value. The zero value of all types is specified in the Go
 // specification.
 //
@@ -123,7 +123,7 @@
 // be encoded into the destination type.
 //
 //	type Source struct {
-//	    Age int `mapstructure:",omitempty"`
+//	    Age int `mapstructure:",omitEmpty"`
 //	}
 //
 // # Unexported fields
@@ -919,8 +919,8 @@ func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val re
 				continue
 			}
 
-			// If "omitempty" is specified in the tag, it ignores empty values.
-			if strings.Index(tagValue[index+1:], "omitempty") != -1 && isEmptyValue(v) {
+			// If "omitEmpty" is specified in the tag, it ignores empty values.
+			if strings.Index(tagValue[index+1:], "omitEmpty") != -1 && isEmptyValue(v) {
 				continue
 			}
 
@@ -1254,8 +1254,9 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 	// Compile the list of all the fields that we're going to be decoding
 	// from all the structs.
 	type field struct {
-		field reflect.StructField
-		val   reflect.Value
+		field     reflect.StructField
+		val       reflect.Value
+		omitEmpty bool
 	}
 
 	// remainField is set to a valid field set with the "remain" tag if
@@ -1280,6 +1281,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 			// If "squash" is specified in the tag, we squash the field down.
 			squash := d.config.Squash && fieldVal.Kind() == reflect.Struct && fieldType.Anonymous
 			remain := false
+			omitEmpty := false
 
 			// We always parse the tags cause we're looking for other tags too
 			tagParts := strings.Split(fieldType.Tag.Get(d.config.TagName), ",")
@@ -1291,6 +1293,11 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 				if tag == "remain" {
 					remain = true
+					break
+				}
+
+				if tag == "omitempty" {
+					omitEmpty = true
 					break
 				}
 			}
@@ -1306,17 +1313,17 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 			// Build our field
 			if remain {
-				remainField = &field{fieldType, fieldVal}
+				remainField = &field{fieldType, fieldVal, omitEmpty}
 			} else {
 				// Normal struct field, store it away
-				fields = append(fields, field{fieldType, fieldVal})
+				fields = append(fields, field{fieldType, fieldVal, omitEmpty})
 			}
 		}
 	}
 
 	// for fieldType, field := range fields {
 	for _, f := range fields {
-		field, fieldValue := f.field, f.val
+		field, fieldValue, fieldOmitEmpty := f.field, f.val, f.omitEmpty
 		fieldName := field.Name
 
 		tagValue := field.Tag.Get(d.config.TagName)
@@ -1370,7 +1377,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 			}
 		}
 
-		if d.config.PostDecodeHook != nil {
+		if d.config.PostDecodeHook != nil && (rawMapVal.IsValid() || !fieldOmitEmpty) {
 			if _, err := DecodeHookExec(d.config.PostDecodeHook, rawMapVal, fieldValue); err != nil {
 				err := NewError(fieldName, "error decoding %w", err)
 				errs = appendErrors(errs, err)
