@@ -1254,9 +1254,8 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 	// Compile the list of all the fields that we're going to be decoding
 	// from all the structs.
 	type field struct {
-		field     reflect.StructField
-		val       reflect.Value
-		omitEmpty bool
+		field reflect.StructField
+		val   reflect.Value
 	}
 
 	// remainField is set to a valid field set with the "remain" tag if
@@ -1281,7 +1280,6 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 			// If "squash" is specified in the tag, we squash the field down.
 			squash := d.config.Squash && fieldVal.Kind() == reflect.Struct && fieldType.Anonymous
 			remain := false
-			omitEmpty := false
 
 			// We always parse the tags cause we're looking for other tags too
 			tagParts := strings.Split(fieldType.Tag.Get(d.config.TagName), ",")
@@ -1293,11 +1291,6 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 				if tag == "remain" {
 					remain = true
-					break
-				}
-
-				if tag == "omitempty" {
-					omitEmpty = true
 					break
 				}
 			}
@@ -1313,17 +1306,17 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 			// Build our field
 			if remain {
-				remainField = &field{fieldType, fieldVal, omitEmpty}
+				remainField = &field{fieldType, fieldVal}
 			} else {
 				// Normal struct field, store it away
-				fields = append(fields, field{fieldType, fieldVal, omitEmpty})
+				fields = append(fields, field{fieldType, fieldVal})
 			}
 		}
 	}
 
 	// for fieldType, field := range fields {
 	for _, f := range fields {
-		field, fieldValue, fieldOmitEmpty := f.field, f.val, f.omitEmpty
+		field, fieldValue := f.field, f.val
 		fieldName := field.Name
 
 		tagValue := field.Tag.Get(d.config.TagName)
@@ -1377,7 +1370,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 			}
 		}
 
-		if d.config.PostDecodeHook != nil && (rawMapVal.IsValid() || !fieldOmitEmpty) {
+		if d.config.PostDecodeHook != nil {
 			if _, err := DecodeHookExec(d.config.PostDecodeHook, rawMapVal, fieldValue); err != nil {
 				err := NewError(fieldName, "error decoding %w", err)
 				errs = appendErrors(errs, err)
