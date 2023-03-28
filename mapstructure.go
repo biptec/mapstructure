@@ -949,6 +949,8 @@ func (d *Decoder) decodeMapFromStruct(name string, dataVal reflect.Value, val re
 
 		switch v.Kind() {
 		// this is an embedded struct, so handle it differently
+		case reflect.Map:
+			fallthrough
 		case reflect.Struct:
 			x := reflect.New(v.Type())
 			x.Elem().Set(v)
